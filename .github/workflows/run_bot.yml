@@ -1,0 +1,38 @@
+name: Run Python Script Cloud
+
+on:
+  # Cho phép bấm nút "Run workflow" để chạy bằng tay trên web GitHub
+  workflow_dispatch:
+
+  # Cấu hình chạy tự động theo lịch (Ví dụ: 5 phút chạy 1 lần)
+  schedule:
+    - cron: '*/5 * * * *'
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Bước 1: Kéo code từ repo GitHub về máy ảo cloud
+    - name: Checkout repository code
+      uses: actions/checkout@v4
+
+    # Bước 2: Khởi tạo môi trường Python
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    # Bước 3: Cài đặt các thư viện cần thiết
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # Nếu không dùng file requirements.txt, bạn có thể bỏ dấu # ở dòng dưới để cài trực tiếp:
+        # pip install requests pyTelegramBotAPI
+
+    # Bước 4: Chạy file Python chính của bạn
+    - name: Execute Python Script
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      run: python bot_internal.py
