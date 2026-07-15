@@ -34,5 +34,9 @@ jobs:
     # Bước 4: Chạy file Python chính của bạn
     - name: Execute Python Script
       env:
+        - name: Execute Python Script
+      env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        MY_SECRET_URL: ${{ secrets.MY_SECRET_URL }}
+        MY_SECRET_APPSCRIPTS: ${{ secrets.MY_SECRET_APPSCRIPTS }}
       run: python bot_internal.py
