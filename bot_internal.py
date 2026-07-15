@@ -1,8 +1,10 @@
+import os
 import logging
 import csv
 import io
 import aiohttp
 import requests
+import asyncio
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
@@ -11,12 +13,17 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 CACHED_TRAINING_DATA = {}
 
-# ================= ⚙️ CẤU HÌNH HỆ THỐNG S2 =================
-ADMIN_TELEGRAM_ID = 1494664481
-TOKEN = "8924599657:AAGmKTqV5EDyIIpvQLdXiwh64TQOdT4BRUQ"
-GOOGLE_SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/10CnLtgufDc0LCjA0DBsP4fZtasTTTP7XXpxz15DCQRs/export?format=csv&gid=0"
-WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxRu7ayOocSdE3V0fYZ9lTOdEqSzGoRueN7XJzlqfy8B5SUTG_7Tgy4Xhk30lpSlPE0fA/exec"
-# =====================================================================
+# ================= ⚙️ CẤU HÌNH HỆ THỐNG S2 (BẢO MẬT TUYỆT ĐỐI) =================
+ADMINS = {
+    1494664481: "HuyDQ",
+    2093523276: "TuanTVA"
+}
+
+# Lấy thông tin từ GitHub Secrets nạp vào qua biến môi trường
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+GOOGLE_SHEETS_CSV_URL = os.getenv("MY_SECRET_URL")
+WEB_APP_URL = os.getenv("MY_SECRET_APPSCRIPTS")
+# ==================================================================================
 
 CHỜ_TÊN, CHỜ_CÂU_HỎI, ADMIN_CHỜ_REPLY = range(3)
 
@@ -76,7 +83,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
     await update.message.reply_text(text, parse_mode="HTML")
 
-# LỆNH /training - Đi thẳng vào mục dữ liệu 'tai_lieu_training' (Đã fix đúng ID theo ảnh Sheets)
+# LỆNH /training
 async def training_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     root_item = CACHED_TRAINING_DATA.get("tai_lieu_training")
     if not root_item:
@@ -85,7 +92,7 @@ async def training_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     reply_markup = build_dynamic_keyboard(root_item['content'], "tai_lieu_training", "tai_lieu_training")
     await update.message.reply_text(f"📚 <b>{root_item['title'].upper()}</b>:", reply_markup=reply_markup, parse_mode="HTML")
 
-# LỆNH /scripts - Đi thẳng vào mục dữ liệu 'scripts'
+# LỆNH /scripts
 async def scripts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     root_item = CACHED_TRAINING_DATA.get("scripts")
     if not root_item:
@@ -98,26 +105,34 @@ async def scripts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.clear()
     context.user_data['state'] = CHỜ_TÊN
-    await update.message.reply_text("❓ <b>Bắt đầu biểu mẫu Q&A</b>\n\n👉 Đầu tiên, vui lòng nhập vào <b>Tên của bạn</b> là gì:", parse_mode="HTML")
+    await update.message.reply_text("<b>Dân hỏi Bộ Trưởng trả lời</b>\n\n👉 Đầu tiên, vui lòng nhập vào <b>Tên của bạn</b> là gì:", parse_mode="HTML")
 
-# XỬ LÝ BIỂU MẪU Q&A BẤT ĐỒNG BỘ
+# XỬ LÝ BIỂU MẪU Q&A
 async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     state = context.user_data.get('state')
     user_id = update.effective_user.id
     user_text = update.message.text.strip()
     
-    if state == ADMIN_CHỜ_REPLY and user_id == ADMIN_TELEGRAM_ID:
+    # Nếu là Admin gửi câu trả lời
+    if state == ADMIN_CHỜ_REPLY and user_id in ADMINS:
         target_user_id = context.user_data.get('target_user_id')
-        if WEB_APP_URL != "THAY_LINK_DEPLOY_WEB_APP_GOOGLE_SHEETS_CỦA_BẠN_VÀO_ĐÂY":
+        replier_name = ADMINS[user_id] # Lấy tên admin trả lời (HuyDQ hoặc TuanTVA)
+        
+        if WEB_APP_URL:
             async def send_reply_async():
                 try:
                     async with aiohttp.ClientSession() as session:
-                        await session.post(WEB_APP_URL, json={"action": "reply", "user_id": target_user_id, "answer": user_text}, timeout=10)
+                        # Gửi thêm trường replier lên Google Sheets
+                        await session.post(WEB_APP_URL, json={
+                            "action": "reply", 
+                            "user_id": target_user_id, 
+                            "answer": user_text,
+                            "replier": replier_name
+                        }, timeout=10)
                 except Exception as e: logging.error(f"Lỗi ghi đè Sheets: {e}")
-            import asyncio
             asyncio.create_task(send_reply_async())
                 
-        user_msg = f"🔔 <b>THÔNG BÁO: BẠN ĐÃ CÓ CÂU TRẢ LỜI TỪ ADMIN!</b>\n\n💬 <b>Câu trả lời:</b> {user_text}"
+        user_msg = f"🔔 <b>THÔNG BÁO: BẠN ĐÃ CÓ CÂU TRẢ LỜI TỪ BỘ TRƯỞNG!</b>\n\n💬 <b>Câu trả lời:</b> {user_text}"
         try:
             await context.bot.send_message(chat_id=target_user_id, text=user_msg, parse_mode="HTML")
             await update.message.reply_text("✅ <b>Đã gửi câu trả lời thành công!</b>", parse_mode="HTML")
@@ -133,24 +148,26 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_name = context.user_data.get('user_name')
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        if WEB_APP_URL != "THAY_LINK_DEPLOY_WEB_APP_GOOGLE_SHEETS_CỦA_BẠN_VÀO_ĐÂY":
+        if WEB_APP_URL:
             async def send_ask_async():
                 try:
                     async with aiohttp.ClientSession() as session:
                         await session.post(WEB_APP_URL, json={"action": "ask", "time": current_time, "user_id": user_id, "name": user_name, "question": user_text}, timeout=10)
                 except Exception as e: logging.error(f"Lỗi đẩy Sheets: {e}")
-            import asyncio
             asyncio.create_task(send_ask_async())
                 
         await update.message.reply_text("✅ <b>Gửi thành công!</b> Câu hỏi đã được chuyển trực tiếp tới Admin.", parse_mode="HTML")
         admin_keyboard = [[InlineKeyboardButton("✍️ Trả lời câu hỏi này", callback_data=f"reply_to:{user_id}")]]
         admin_text = f"🚨 <b>BẠN CÓ CÂU HỎI Q&A MỚI!</b>\n\n👤 <b>Người hỏi:</b> {user_name} (ID: {user_id})\n💬 <b>Nội dung:</b> {user_text}"
-        try:
-            await context.bot.send_message(chat_id=ADMIN_TELEGRAM_ID, text=admin_text, reply_markup=InlineKeyboardMarkup(admin_keyboard), parse_mode="HTML")
-        except Exception as e: logging.error(f"Lỗi gửi Admin: {e}")
+        
+        # Gửi thông báo câu hỏi mới tới CẢ HAI ADMIN
+        for admin_id in ADMINS.keys():
+            try:
+                await context.bot.send_message(chat_id=admin_id, text=admin_text, reply_markup=InlineKeyboardMarkup(admin_keyboard), parse_mode="HTML")
+            except Exception as e: logging.error(f"Lỗi gửi Admin {admin_id}: {e}")
         context.user_data.clear()
 
-# XỬ LÝ SỰ KIỆN CLICK NÚT BẤM VÀ TRIỆT TIÊU MENU KHI ĐẾN TẬN CÙNG
+# XỬ LÝ CLICK NÚT BẤM
 async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
@@ -158,11 +175,23 @@ async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     
     if data.startswith("reply_to:"):
-        if user_id != ADMIN_TELEGRAM_ID: return
+        if user_id not in ADMINS: return
+        
+        current_admin_name = ADMINS[user_id]
         target_user = data.split(":")[1].strip()
         context.user_data['state'] = ADMIN_CHỜ_REPLY
         context.user_data['target_user_id'] = target_user
-        await query.message.reply_text("👉 Vui lòng nhập nội dung phản hồi cho thành viên vào ô chat:", parse_mode="HTML")
+        
+        # Gửi thông báo cho Admin còn lại biết người này đã nhận xử lý
+        for admin_id, admin_name in ADMINS.items():
+            if admin_id != user_id:
+                try:
+                    notify_msg = f"🔔 <b>THÔNG BÁO:</b> Admin <b>{current_admin_name}</b> đã đảm nhận việc trả lời câu hỏi của User ID {target_user}."
+                    await context.bot.send_message(chat_id=admin_id, text=notify_msg, parse_mode="HTML")
+                except Exception as e:
+                    logging.error(f"Lỗi gửi thông báo cho admin còn lại {admin_id}: {e}")
+
+        await query.message.reply_text(f"👉 Chào <b>{current_admin_name}</b>, vui lòng nhập nội dung phản hồi cho thành viên vào ô chat:", parse_mode="HTML")
         return
 
     # 1️⃣ LUỒNG TRAINING INTERNAL
@@ -173,10 +202,8 @@ async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE
             content = item['content']
             
             if content.startswith("menu:"):
-                # Nếu vẫn là menu danh mục, tiếp tục hiển thị nút điều hướng
                 await query.edit_message_text(text=f"📂 <b>{item['title'].upper()}</b>\nVui lòng lựa chọn tiếp:", reply_markup=build_dynamic_keyboard(content, target_key, "tai_lieu_training"), parse_mode="HTML")
             else:
-                # 🎯 ĐÃ ĐẾN BÀI VIẾT CUỐI: Xóa sạch bàn phím (reply_markup=None) để menu biến mất hoàn toàn
                 await query.edit_message_text(text=f"📄 <b>{item['title'].upper()}</b>\n\n{content}", reply_markup=None, parse_mode="HTML")
         return
 
@@ -188,10 +215,8 @@ async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE
             content = item['content']
             
             if content.startswith("menu:"):
-                # Nếu là menu con của tầng script, tiếp tục hiển thị nút điều hướng
                 await query.edit_message_text(text=f"📂 <b>{item['title'].upper()}</b>\nVui lòng lựa chọn tiếp:", reply_markup=build_dynamic_keyboard(content, target_key, "scripts"), parse_mode="HTML")
             else:
-                # 🎯 ĐÃ ĐẾN ĐÍCH LẤY FILE SCRIPT: Sửa nội dung tin nhắn cũ và XÓA SẠCH MENU (reply_markup=None)
                 title_upper = item['title'].upper()
                 await query.edit_message_text(text=f"🚀 <b>{title_upper}</b>\n\n⚙️ <i>Nội dung đang được đẩy xuống dưới dưới dạng file đính kèm...</i>", reply_markup=None, parse_mode="HTML")
                 
@@ -200,7 +225,6 @@ async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE
                 elif "LABEL ADS" in title_upper: custom_note = "\n⚠️ <b>LƯU Ý:</b> Nhớ thay <b>URL sheet Supplemental</b>."
                 elif any(kw in title_upper for kw in ["SEARCH", "PMAX", "COLLECTION", "BRAND"]): custom_note = "\n⚠️ <b>LƯU Ý:</b> Nhớ thay <b>URL sheet Auto Ads</b> của cá nhân bạn."
 
-                # Gửi file text chuẩn hóa
                 clean_content = content.strip().replace('\\n', '\n').replace('\r\n', '\n').replace('\r', '\n')
                 file_buffer = io.BytesIO(clean_content.encode('utf-8'))
                 file_buffer.name = f"{item['title'].replace(' ', '_')}.txt"
@@ -210,12 +234,12 @@ async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # LỆNH ĐỒNG BỘ THỦ CÔNG
 async def update_data_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user.id != ADMIN_TELEGRAM_ID: return
+    if update.effective_user.id not in ADMINS: return
     await update.message.reply_text("🔄 Đang nạp dữ liệu từ Google Sheets về bộ nhớ đệm...")
     if load_data_from_sheets(context.bot_data.get("csv_url")):
-        await update.message.reply_text("✅ Cấu trúc menu rút gọn và tính năng tự động xóa menu cuối đã được kích hoạt!", parse_mode="HTML")
+        await update.message.reply_text("✅ Đồng bộ hoàn tất!", parse_mode="HTML")
 
-def main():
+async def main_run():
     load_data_from_sheets(GOOGLE_SHEETS_CSV_URL)
     application = Application.builder().token(TOKEN).build()
     application.bot_data["csv_url"] = GOOGLE_SHEETS_CSV_URL
@@ -229,8 +253,16 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
     application.add_handler(CallbackQueryHandler(handle_button_click))
     
-    print("Bot S2 dọn menu cuối và fix ID tai_lieu_training đã sẵn sàng chạy!")
-    application.run_polling()
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    
+    logging.info("Bot đang chạy trên GitHub Actions Cloud...")
+    await asyncio.sleep(270)
+    
+    await application.updater.stop()
+    await application.stop()
+    await application.shutdown()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main_run())
