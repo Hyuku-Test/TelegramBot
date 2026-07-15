@@ -261,7 +261,8 @@ async def main_run():
     await application.updater.start_polling()
     
     logging.info("Bot đang chạy an toàn trên máy ảo GitHub Actions...")
-    await asyncio.sleep(270)
+    # Thiết lập chạy gối đầu trong 2 tiếng 5 phút (7500 giây) để loại bỏ hoàn toàn delay giữa các phiên đóng/mở máy ảo
+    await asyncio.sleep(7500) 
     
     await application.updater.stop()
     await application.stop()
