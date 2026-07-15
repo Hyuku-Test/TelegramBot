@@ -14,21 +14,25 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 CACHED_TRAINING_DATA = {}
 
 # ================= ⚙️ CẤU HÌNH HỆ THỐNG S2 (BẢO MẬT TUYỆT ĐỐI) =================
+# Danh sách Admin và Tên tương ứng
 ADMINS = {
     1494664481: "HuyDQ",
     2093523276: "TuanTVA"
 }
 
-# Lấy thông tin từ GitHub Secrets nạp vào qua biến môi trường
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-GOOGLE_SHEETS_CSV_URL = os.getenv("MY_SECRET_URL")
-WEB_APP_URL = os.getenv("MY_SECRET_APPSCRIPTS")
+# Lấy thông tin từ GitHub Secrets và dùng .strip() để loại bỏ hoàn toàn dấu xuống dòng (\n) hoặc khoảng trắng thừa
+TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
+GOOGLE_SHEETS_CSV_URL = os.getenv("MY_SECRET_URL", "").strip()
+WEB_APP_URL = os.getenv("MY_SECRET_APPSCRIPTS", "").strip()
 # ==================================================================================
 
 CHỜ_TÊN, CHỜ_CÂU_HỎI, ADMIN_CHỜ_REPLY = range(3)
 
 def load_data_from_sheets(csv_url):
     global CACHED_TRAINING_DATA
+    if not csv_url:
+        logging.error("Lỗi: URL Google Sheets trống!")
+        return False
     try:
         response = requests.get(csv_url, timeout=10)
         response.encoding = 'utf-8'
@@ -116,13 +120,12 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # Nếu là Admin gửi câu trả lời
     if state == ADMIN_CHỜ_REPLY and user_id in ADMINS:
         target_user_id = context.user_data.get('target_user_id')
-        replier_name = ADMINS[user_id] # Lấy tên admin trả lời (HuyDQ hoặc TuanTVA)
+        replier_name = ADMINS[user_id]
         
         if WEB_APP_URL:
             async def send_reply_async():
                 try:
                     async with aiohttp.ClientSession() as session:
-                        # Gửi thêm trường replier lên Google Sheets
                         await session.post(WEB_APP_URL, json={
                             "action": "reply", 
                             "user_id": target_user_id, 
@@ -160,7 +163,6 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         admin_keyboard = [[InlineKeyboardButton("✍️ Trả lời câu hỏi này", callback_data=f"reply_to:{user_id}")]]
         admin_text = f"🚨 <b>BẠN CÓ CÂU HỎI Q&A MỚI!</b>\n\n👤 <b>Người hỏi:</b> {user_name} (ID: {user_id})\n💬 <b>Nội dung:</b> {user_text}"
         
-        # Gửi thông báo câu hỏi mới tới CẢ HAI ADMIN
         for admin_id in ADMINS.keys():
             try:
                 await context.bot.send_message(chat_id=admin_id, text=admin_text, reply_markup=InlineKeyboardMarkup(admin_keyboard), parse_mode="HTML")
@@ -182,7 +184,6 @@ async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['state'] = ADMIN_CHỜ_REPLY
         context.user_data['target_user_id'] = target_user
         
-        # Gửi thông báo cho Admin còn lại biết người này đã nhận xử lý
         for admin_id, admin_name in ADMINS.items():
             if admin_id != user_id:
                 try:
@@ -194,7 +195,6 @@ async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.message.reply_text(f"👉 Chào <b>{current_admin_name}</b>, vui lòng nhập nội dung phản hồi cho thành viên vào ô chat:", parse_mode="HTML")
         return
 
-    # 1️⃣ LUỒNG TRAINING INTERNAL
     if data.startswith("go_train:"):
         target_key = data.split(":")[1].strip()
         if target_key in CACHED_TRAINING_DATA:
@@ -207,7 +207,6 @@ async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await query.edit_message_text(text=f"📄 <b>{item['title'].upper()}</b>\n\n{content}", reply_markup=None, parse_mode="HTML")
         return
 
-    # 2️⃣ LUỒNG KHO SCRIPTS AUTOMATION
     if data.startswith("go_script:"):
         target_key = data.split(":")[1].strip()
         if target_key in CACHED_TRAINING_DATA:
@@ -240,6 +239,10 @@ async def update_data_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("✅ Đồng bộ hoàn tất!", parse_mode="HTML")
 
 async def main_run():
+    if not TOKEN:
+        logging.error("Lỗi nghiêm trọng: Cấu hình TELEGRAM_TOKEN trống hoặc sai định dạng!")
+        return
+        
     load_data_from_sheets(GOOGLE_SHEETS_CSV_URL)
     application = Application.builder().token(TOKEN).build()
     application.bot_data["csv_url"] = GOOGLE_SHEETS_CSV_URL
@@ -257,7 +260,7 @@ async def main_run():
     await application.start()
     await application.updater.start_polling()
     
-    logging.info("Bot đang chạy trên GitHub Actions Cloud...")
+    logging.info("Bot đang chạy an toàn trên máy ảo GitHub Actions...")
     await asyncio.sleep(270)
     
     await application.updater.stop()
